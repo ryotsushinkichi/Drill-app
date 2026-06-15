@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="資料をそのまま暗記ドリルへ変換。一問一答・穴埋め・フラッシュカードで記憶定着。" />
+  <title>ドリル変換 — 資料をそのまま暗記教材へ</title>
+
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- Tesseract.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#111111" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="ドリル変換" />
+</head>
+<body>
+
+  <!-- ========== ヘッダー ========== -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-mark">◆</span>
+        <span class="logo-text">ドリル変換</span>
+      </div>
+      <p class="header-tagline">資料をそのまま暗記教材へ</p>
+    </div>
+  </header>
+
+  <!-- ========== メインコンテンツ ========== -->
+  <main id="app">
+
+    <!-- ── STEP 1: 入力画面 ── -->
+    <section id="screen-input" class="screen active">
+      <div class="container">
+
+        <div class="step-label">STEP 1</div>
+        <h1 class="screen-title">資料を投入する</h1>
+        <p class="screen-desc">PDF・画像・テキストに対応しています。投入した資料の内容のみから問題を作成します。</p>
+
+        <!-- タブ切り替え -->
+        <div class="tab-group" role="tablist">
+          <button class="tab-btn active" role="tab" data-tab="tab-pdf" aria-selected="true">PDF</button>
+          <button class="tab-btn" role="tab" data-tab="tab-image" aria-selected="false">画像</button>
+          <button class="tab-btn" role="tab" data-tab="tab-text" aria-selected="false">テキスト</button>
+        </div>
+
+        <!-- PDF投入 -->
+        <div id="tab-pdf" class="tab-panel active">
+          <div class="drop-zone" id="pdf-drop" role="button" tabindex="0" aria-label="PDFファイルをドロップ">
+            <div class="drop-icon">📄</div>
+            <p class="drop-main">PDFをここにドロップ</p>
+            <p class="drop-sub">または</p>
+            <label class="btn-file">
+              ファイルを選択
+              <input type="file" id="pdf-input" accept=".pdf" hidden />
+            </label>
+          </div>
+          <p class="input-note">※ テキスト埋め込みPDFは高精度で抽出されます。スキャンPDFはOCR処理を行います。</p>
+        </div>
+
+        <!-- 画像投入 -->
+        <div id="tab-image" class="tab-panel">
+          <div class="drop-zone" id="image-drop" role="button" tabindex="0" aria-label="画像ファイルをドロップ">
+            <div class="drop-icon">🖼</div>
+            <p class="drop-main">画像をここにドロップ</p>
+            <p class="drop-sub">または</p>
+            <label class="btn-file">
+              ファイルを選択
+              <input type="file" id="image-input" accept="image/*" multiple hidden />
+            </label>
+          </div>
+          <p class="input-note">※ JPG・PNG・GIF・WebP対応。複数枚同時選択可。GoodNotes書き出しPDFは「PDF」タブをご利用ください。</p>
+        </div>
+
+        <!-- テキスト貼り付け -->
+        <div id="tab-text" class="tab-panel">
+          <textarea id="text-input" class="text-area" placeholder="ここに資料のテキストを貼り付けてください。
+
+例：
+CKDとは腎障害またはGFR60未満が3か月以上持続する状態である。
+高血圧は収縮期血圧140mmHg以上または拡張期血圧90mmHg以上と定義される。" rows="12"></textarea>
+          <div class="text-counter"><span id="char-count">0</span> 文字</div>
+        </div>
+
+        <!-- 処理状況 -->
+        <div id="processing-area" class="processing-area hidden">
+          <div class="progress-bar-wrap">
+            <div class="progress-bar" id="progress-bar"></div>
+          </div>
+          <p class="processing-status" id="processing-status">処理中...</p>
+        </div>
+
+        <!-- エラー表示 -->
+        <div id="error-area" class="error-area hidden">
+          <p id="error-message"></p>
+        </div>
+
+        <!-- 実行ボタン -->
+        <button class="btn-primary" id="btn-generate">ドリルを作成する →</button>
+
+      </div>
+    </section>
+
+    <!-- ── STEP 2: モード選択 ── -->
+    <section id="screen-mode" class="screen">
+      <div class="container">
+
+        <div class="step-label">STEP 2</div>
+        <h2 class="screen-title">学習モードを選ぶ</h2>
+        <p id="question-count-label" class="screen-desc"></p>
+
+        <div class="mode-grid">
+
+          <button class="mode-card" data-mode="qa">
+            <div class="mode-icon">Q&amp;A</div>
+            <div class="mode-name">一問一答</div>
+            <div class="mode-desc">問いに対して答えを思い出す。最も基本的な暗記練習。</div>
+          </button>
+
+          <button class="mode-card" data-mode="fill">
+            <div class="mode-icon">( )</div>
+            <div class="mode-name">穴埋め</div>
+            <div class="mode-desc">文章の重要語句を隠して埋める。文脈ごと覚えられる。</div>
+          </button>
+
+          <button class="mode-card" data-mode="flash">
+            <div class="mode-icon">⇄</div>
+            <div class="mode-name">フラッシュカード</div>
+            <div class="mode-desc">カードをめくって表裏を確認。素早く大量に回せる。</div>
+          </button>
+
+          <button class="mode-card" data-mode="drill">
+            <div class="mode-icon">✎</div>
+            <div class="mode-name">演習モード</div>
+            <div class="mode-desc">全モードをミックス。不正解は自動的に再出題される。</div>
+          </button>
+
+          <button class="mode-card mode-card--weak" data-mode="weak" id="mode-weak-btn">
+            <div class="mode-icon">△</div>
+            <div class="mode-name">苦手のみ</div>
+            <div class="mode-desc">不正解だった問題に集中して取り組む。</div>
+          </button>
+
+        </div>
+
+        <button class="btn-secondary" id="btn-back-to-input">← 資料を変更する</button>
+
+      </div>
+    </section>
+
+    <!-- ── STEP 3: 演習画面 ── -->
+    <section id="screen-drill" class="screen">
+      <div class="container">
+
+        <!-- 進捗バー -->
+        <div class="drill-progress-wrap">
+          <div class="drill-progress-info">
+            <span id="drill-current">1</span> / <span id="drill-total">10</span>
+          </div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar" id="drill-progress-bar"></div>
+          </div>
+        </div>
+
+        <!-- モードラベル -->
+        <div class="drill-mode-label" id="drill-mode-label"></div>
+
+        <!-- 問題カード -->
+        <div class="card" id="question-card">
+          <div class="card-body" id="question-body"></div>
+        </div>
+
+        <!-- フラッシュカード専用：答え表示エリア -->
+        <div class="card card--answer hidden" id="answer-card">
+          <div class="card-label">答え</div>
+          <div class="card-body" id="answer-body"></div>
+        </div>
+
+        <!-- 操作ボタン群 -->
+        <div class="drill-actions" id="drill-actions">
+
+          <!-- フラッシュカード：めくるボタン -->
+          <button class="btn-flip hidden" id="btn-flip">答えを見る ▼</button>
+
+          <!-- フラッシュカード：正誤ボタン -->
+          <div class="btn-judge-group hidden" id="btn-judge-group">
+            <button class="btn-wrong" id="btn-wrong">✗ わからなかった</button>
+            <button class="btn-correct" id="btn-correct">○ わかった</button>
+          </div>
+
+          <!-- 一問一答・穴埋め：答え確認ボタン -->
+          <button class="btn-show-answer hidden" id="btn-show-answer">答えを確認する ▼</button>
+
+          <!-- 答え確認後：正誤ボタン -->
+          <div class="btn-judge-group hidden" id="btn-judge-group2">
+            <button class="btn-wrong" id="btn-wrong2">✗ わからなかった</button>
+            <button class="btn-correct" id="btn-correct2">○ わかった</button>
+          </div>
+
+        </div>
+
+        <button class="btn-exit" id="btn-exit-drill">中断して戻る</button>
+
+      </div>
+    </section>
+
+    <!-- ── STEP 4: 結果画面 ── -->
+    <section id="screen-result" class="screen">
+      <div class="container">
+
+        <h2 class="screen-title">結果</h2>
+
+        <div class="result-summary">
+          <div class="result-stat">
+            <div class="result-num" id="result-correct">0</div>
+            <div class="result-lbl">正解</div>
+          </div>
+          <div class="result-divider">/</div>
+          <div class="result-stat">
+            <div class="result-num" id="result-total-count">0</div>
+            <div class="result-lbl">出題数</div>
+          </div>
+        </div>
+
+        <div class="result-rate-wrap">
+          <div class="result-rate" id="result-rate">0%</div>
+          <div class="result-rate-label">正答率</div>
+        </div>
+
+        <!-- 苦手問題一覧 -->
+        <div id="weak-summary" class="weak-summary hidden">
+          <h3 class="weak-title">△ 苦手問題（<span id="weak-count">0</span>問）</h3>
+          <ul id="weak-list" class="weak-list"></ul>
+        </div>
+
+        <div class="result-actions">
+          <button class="btn-primary" id="btn-retry-same">同じモードでもう一度</button>
+          <button class="btn-secondary" id="btn-back-to-mode">モードを変える</button>
+          <button class="btn-secondary" id="btn-back-to-top">資料から作り直す</button>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========== フッター ========== -->
+  <footer class="site-footer">
+    <div class="container">
+      <p>資料の内容のみから問題を作成します。資料外の知識は一切使用しません。</p>
+    </div>
+  </footer>
+
+  <!-- JS -->
+  <script src="js/i18n.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/extractor.js"></script>
+  <script src="js/generator.js"></script>
+  <script src="js/drill.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>

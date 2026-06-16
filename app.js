@@ -54,6 +54,8 @@ const UI = {
   btnWrong2:        $('btn-wrong2'),
   btnCorrect2:      $('btn-correct2'),
   btnExitDrill:     $('btn-exit-drill'),
+  btnThemeToggle:   $('btn-theme-toggle'),
+  siteHeader:       document.querySelector('.site-header'),
 
   /* 結果 */
   resultCorrect:    $('result-correct'),
@@ -81,6 +83,13 @@ function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   window.scrollTo({ top: 0, behavior: 'smooth' });
+  // ヘッダー：ドリル中は白、それ以外は緑
+  const header = document.querySelector('.site-header');
+  if (id === 'screen-drill' || id === 'screen-result') {
+    header.classList.add('drill-mode');
+  } else {
+    header.classList.remove('drill-mode');
+  }
 }
 
 /* ============================================================
@@ -496,6 +505,24 @@ UI.btnBackToTop.addEventListener('click', () => {
 
   showScreen('screen-input');
 });
+
+/* ============================================================
+   テーマ切り替え（シック ⇄ ポップ）
+   ============================================================ */
+let currentTheme = 'chic'; // デフォルト：シック
+if (UI.btnThemeToggle) {
+  UI.btnThemeToggle.addEventListener('click', () => {
+    if (currentTheme === 'chic') {
+      currentTheme = 'pop';
+      document.body.classList.add('theme-pop');
+      UI.btnThemeToggle.textContent = '📓 シック表示';
+    } else {
+      currentTheme = 'chic';
+      document.body.classList.remove('theme-pop');
+      UI.btnThemeToggle.textContent = '🎨 ポップ表示';
+    }
+  });
+}
 
 /* ============================================================
    Service Worker 登録（PWA Phase2準備）

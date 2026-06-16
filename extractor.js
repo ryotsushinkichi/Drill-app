@@ -129,7 +129,7 @@ const Extractor = {
    * @returns {Promise<{text: string, imageDataUrl: string}>}
    */
   async _ocrPDFPage(page, pageNum, totalPages, onProgress) {
-    const scale = 2.0; // 高解像度でOCR精度向上
+    const scale = 3.0; // 高解像度でOCR精度向上（2.0→3.0に強化）
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement('canvas');
     canvas.width  = viewport.width;
@@ -142,7 +142,10 @@ const Extractor = {
       I18N.t('status.ocr_page', { n: pageNum })
     );
 
-    const text = await this._runOCR(canvas, onProgress);
+    // OCR前処理（グレースケール化・コントラスト強調・二値化）
+    const processedCanvas = this._preprocessForOCR(canvas);
+
+    const text = await this._runOCR(processedCanvas, onProgress);
     return { text, imageDataUrl: canvas.toDataURL('image/png') };
   },
 
@@ -166,7 +169,10 @@ const Extractor = {
         I18N.t('status.ocr_page', { n: i + 1 })
       );
 
-      const text = await this._runOCR(canvas, onProgress);
+      // OCR前処理（グレースケール化・コントラスト強調・二値化）
+      const processedCanvas = this._preprocessForOCR(canvas);
+
+      const text = await this._runOCR(processedCanvas, onProgress);
       const isLowQuality = text.trim().length < 10;
 
       pages.push({
@@ -211,7 +217,11 @@ const Extractor = {
       const result = await Tesseract.recognize(canvas, 'jpn+eng', {
         logger: () => {
           // OCR進捗は親のonProgressに委ねる（上書きしない）
-        }
+        },
+        // PSM 6: 単一の均一なテキストブロックとして認識（資料・レジュメ向き）
+        tessedit_pageseg_mode: '6',
+        // 文字間の不要な空白を抑制
+        preserve_interword_spaces: '1',
       });
 
       const text = result.data.text || '';
@@ -229,6 +239,88 @@ const Extractor = {
       console.warn('[OCR] 処理失敗（継続）:', e);
       return '';
     }
+  },
+
+  /**
+   * OCR精度向上のための画像前処理
+   * グレースケール化 → コントラスト強調 → 二値化
+   * @param {HTMLCanvasElement} canvas
+   * @returns {HTMLCanvasElement} 処理済みCanvas
+   */
+  _preprocessForOCR(canvas) {
+    const out = document.createElement('canvas');
+    out.width  = canvas.width;
+    out.height = canvas.height;
+    const ctx = out.getContext('2d');
+    ctx.drawImage(canvas, 0, 0);
+
+    const imageData = ctx.getImageData(0, 0, out.width, out.height);
+    const data = imageData.data;
+
+    // ── ステップ1: グレースケール化 ──
+    const gray = new Uint8ClampedArray(out.width * out.height);
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      gray[i / 4] = 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
+    // ── ステップ2: 大津の二値化（Otsu's method）で最適な閾値を自動算出 ──
+    const threshold = this._otsuThreshold(gray);
+
+    // ── ステップ3: コントラスト強調 + 二値化を同時適用 ──
+    for (let i = 0; i < data.length; i += 4) {
+      const grayVal = gray[i / 4];
+      // 閾値を基準にコントラストを強める（完全な二値化ではなく強調に留め、
+      // 薄い文字や手書き文字のかすれを潰さないようにする）
+      const enhanced = grayVal < threshold
+        ? Math.max(0, grayVal - (threshold - grayVal) * 0.5)
+        : Math.min(255, grayVal + (grayVal - threshold) * 0.5);
+
+      data[i]     = enhanced;
+      data[i + 1] = enhanced;
+      data[i + 2] = enhanced;
+      // data[i+3] はアルファ値なので変更しない
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return out;
+  },
+
+  /**
+   * 大津の二値化法：画像全体から最適な閾値を自動計算
+   * @param {Uint8ClampedArray} grayData グレースケール画素値の配列
+   * @returns {number} 最適閾値（0-255）
+   */
+  _otsuThreshold(grayData) {
+    const histogram = new Array(256).fill(0);
+    for (let i = 0; i < grayData.length; i++) {
+      histogram[grayData[i]]++;
+    }
+
+    const total = grayData.length;
+    let sum = 0;
+    for (let i = 0; i < 256; i++) sum += i * histogram[i];
+
+    let sumB = 0, wB = 0, maxVariance = 0, threshold = 128;
+
+    for (let t = 0; t < 256; t++) {
+      wB += histogram[t];
+      if (wB === 0) continue;
+      const wF = total - wB;
+      if (wF === 0) break;
+
+      sumB += t * histogram[t];
+      const mB = sumB / wB;
+      const mF = (sum - sumB) / wF;
+      const variance = wB * wF * (mB - mF) * (mB - mF);
+
+      if (variance > maxVariance) {
+        maxVariance = variance;
+        threshold = t;
+      }
+    }
+
+    return threshold;
   },
 
   /* ── 内部: 画像読み込み ── */
